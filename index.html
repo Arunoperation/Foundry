@@ -281,7 +281,7 @@ pre.report{background:var(--bg3);border:1px solid var(--border);border-radius:va
     <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);font-size:11px;color:var(--text3);text-align:center">
       Contact your administrator if you have forgotten your password.
     </div>
-    <div style="margin-top:.75rem;text-align:center">
+    <div id="setupLinkDiv" style="margin-top:.75rem;text-align:center;display:none">
       <a href="#setup" onclick="event.preventDefault();document.getElementById('loginScreen').style.display='none';document.getElementById('setupScreen').style.display='flex';" style="font-size:12px;color:var(--green);text-decoration:none;font-weight:500">First time? Create admin account →</a>
     </div>
   </div>
@@ -315,7 +315,7 @@ pre.report{background:var(--bg3);border:1px solid var(--border);border-radius:va
       <input type="password" id="setupConfirm" placeholder="Re-enter password" onkeydown="if(event.key==='Enter')doSetup()"/>
     </div>
     <button class="btn-login" onclick="doSetup()">Create admin & continue</button>
-    <div class="login-err" id="setupErr"></div>
+    <div class="login-err" id="setupErr" style="margin-top:8px"></div>
   </div>
 </div>
 
@@ -498,6 +498,13 @@ async function doSetup() {
   if (p !== c) { errEl.textContent = 'Passwords do not match.'; errEl.style.display = 'block'; return; }
   const btn = document.querySelector('#setupScreen .btn-login');
   btn.textContent = 'Creating…'; btn.disabled = true;
+  // Wait for Firebase to be ready
+  if (!window._fs || !window._db) {
+    btn.textContent = 'Create admin & continue'; btn.disabled = false;
+    errEl.textContent = 'Database not ready yet. Please wait 3 seconds and try again.';
+    errEl.style.display = 'block';
+    return;
+  }
   try {
     const hash = await hashPassword(p);
     const id = 'u' + Date.now();
@@ -525,6 +532,11 @@ async function doLogin() {
   if (!username || !p) { errEl.style.display = 'block'; errEl.textContent = 'Enter username and password.'; return; }
   const btn = document.querySelector('#loginScreen .btn-login');
   btn.textContent = 'Signing in…'; btn.disabled = true;
+  if (!window._fs || !window._db) {
+    btn.textContent = 'Sign in'; btn.disabled = false;
+    errEl.textContent = 'Database not ready. Please wait and try again.';
+    errEl.style.display = 'block'; return;
+  }
   try {
     // Load user by username from Firestore
     const { collection, getDocs } = fs();
@@ -1300,7 +1312,7 @@ function pageUsers(){
 
 async function loadUsersFromFirebase(){
   try {
-    const { collection, getDocs } = window._fsHelpers;
+    const { collection, getDocs } = window._fs;
     const snap = await getDocs(collection(window._db,'users'));
     store.users = snap.docs.map(d => ({id: d.id, ...d.data()}));
     renderUsersTable();
@@ -1324,7 +1336,7 @@ function renderUsersTable(){
   </tr>`).join('');
 }
 
-function openAddUser(){
+async function openAddUser(){
   openModal('Add user',`
     <div class="grid2">
       <div class="field"><label>Full name</label><input id="nu-name" placeholder="e.g. Rajan Mehta"/></div>
@@ -1372,7 +1384,7 @@ async function editUser(id){
       <div class="field"><label>Email</label><input type="email" id="eu-email" value="${u.email||''}"/></div>
     </div>
   `,[
-    {label:'Save',cls:'btn-primary',fn:()=>{
+    {label:'Save',cls:'btn-primary',fn:async()=>{
       u.name=document.getElementById('eu-name').value.trim();
       u.username=document.getElementById('eu-user').value.trim();
       u.role=document.getElementById('eu-role').value;
@@ -1387,7 +1399,7 @@ async function editUser(id){
   ]);
 }
 
-function resetPassword(id){
+async function resetPassword(id){
   const u=store.users.find(x=>x.id===id);
   if(!u)return;
   openModal(`Reset password — ${u.name}`,`
@@ -1697,11 +1709,20 @@ async function runInit() {
   loadSettings2();
   loadChecklist();
 
-  // If URL has #setup, show setup screen directly
+  // If URL has #setup, only allow if no users exist
   if (window.location.hash === '#setup') {
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('setupScreen').style.display = 'flex';
-    return;
+    try {
+      const { collection, getDocs } = window._fs;
+      const snap = await getDocs(collection(window._db, 'users'));
+      if (snap.empty) {
+        document.getElementById('loginScreen').style.display = 'none';
+        document.getElementById('setupScreen').style.display = 'flex';
+        return;
+      } else {
+        // Users already exist — ignore #setup, clear hash, show login
+        history.replaceState(null, '', window.location.pathname);
+      }
+    } catch(e) { /* fall through to normal init */ }
   }
 
   // Try to restore session from sessionStorage
@@ -1725,11 +1746,14 @@ async function runInit() {
     const { collection, getDocs } = window._fs;
     const snap = await getDocs(collection(window._db, 'users'));
     if (snap.empty) {
+      // No users at all — show setup screen directly, no link needed
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('setupScreen').style.display = 'flex';
     } else {
-      // Users exist — show login
+      // Users exist — show normal login, keep setup link hidden
       document.getElementById('loginScreen').style.display = 'flex';
+      const lnk = document.getElementById('setupLinkDiv');
+      if (lnk) lnk.style.display = 'none';
     }
   } catch(e) {
     console.error('Firestore check failed:', e);
