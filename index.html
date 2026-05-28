@@ -282,7 +282,7 @@ pre.report{background:var(--bg3);border:1px solid var(--border);border-radius:va
       Contact your administrator if you have forgotten your password.
     </div>
     <div style="margin-top:.75rem;text-align:center">
-      <a href="#" onclick="showSetup()" style="font-size:12px;color:var(--green);text-decoration:none">First time? Create admin account →</a>
+      <a href="#setup" onclick="event.preventDefault();document.getElementById('loginScreen').style.display='none';document.getElementById('setupScreen').style.display='flex';" style="font-size:12px;color:var(--green);text-decoration:none;font-weight:500">First time? Create admin account →</a>
     </div>
   </div>
 </div>
@@ -1677,6 +1677,7 @@ document.getElementById('modalOverlay').addEventListener('click',function(e){
 //  TOAST
 // ============================================================
 function showSetup(){
+  window.location.hash = '#setup';
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('setupScreen').style.display='flex';
 }
@@ -1695,12 +1696,19 @@ function showToast(msg,type=''){
 async function runInit() {
   loadSettings2();
   loadChecklist();
+
+  // If URL has #setup, show setup screen directly
+  if (window.location.hash === '#setup') {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('setupScreen').style.display = 'flex';
+    return;
+  }
+
   // Try to restore session from sessionStorage
   const sess = sessionStorage.getItem('mmSession');
   if (sess) {
     try {
       const saved = JSON.parse(sess);
-      // Re-fetch full profile from Firestore
       const { doc, getDoc } = window._fs;
       const snap = await getDoc(doc(window._db, 'users', saved.id));
       if (snap.exists()) {
@@ -1711,6 +1719,7 @@ async function runInit() {
       }
     } catch(e) { sessionStorage.removeItem('mmSession'); }
   }
+
   // No active session — check if first run (no users in Firestore)
   try {
     const { collection, getDocs } = window._fs;
@@ -1718,10 +1727,13 @@ async function runInit() {
     if (snap.empty) {
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('setupScreen').style.display = 'flex';
+    } else {
+      // Users exist — show login
+      document.getElementById('loginScreen').style.display = 'flex';
     }
   } catch(e) {
     console.error('Firestore check failed:', e);
-    document.getElementById('loginErr').textContent = 'Cannot connect to database: ' + (e.message || e.code || 'unknown error');
+    document.getElementById('loginErr').textContent = 'Error: ' + (e.message || e.code || 'Cannot connect. Check console.');
     document.getElementById('loginErr').style.display = 'block';
   }
 }
