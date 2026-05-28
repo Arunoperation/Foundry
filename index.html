@@ -60,7 +60,7 @@ window._startSettingsListener = function() {
 };
 
 window._firebaseReady = true;
-document.dispatchEvent(new Event('firebaseReady'));
+setTimeout(() => document.dispatchEvent(new Event('firebaseReady')), 300);
 </script>
 <style>
 :root{
@@ -802,7 +802,7 @@ function calcAH(){
   else{el.style.color='var(--green)';if(st){st.textContent='✓ Within safe range';st.style.color='var(--green)';}}
 }
 
-function saveHeat(){
+async function saveHeat(){
   const heatNo=document.getElementById('heatNo')?.value.trim();
   if(!heatNo){showToast('Please enter heat number','error');return;}
   const rh=parseFloat(document.getElementById('rh').value)||null;
@@ -1099,7 +1099,7 @@ function renderHeatLog(){
   }).join('');
 }
 
-function deleteHeat(id){
+async function deleteHeat(id){
   if(!confirm('Delete this heat record?'))return;
   await deleteHeatFromFirebase(id);
   // Real-time listener will auto-update store.heats
@@ -1109,7 +1109,7 @@ function deleteHeat(id){
   showToast('Heat record deleted','success');
 }
 
-function editHeat(id){
+async function editHeat(id){
   const h=store.heats.find(x=>x.id===id);
   if(!h)return;
   openModal('Edit heat record',`
@@ -1356,7 +1356,7 @@ function openAddUser(){
   ]);
 }
 
-function editUser(id){
+async function editUser(id){
   const u=store.users.find(x=>x.id===id);
   if(!u)return;
   openModal('Edit user',`
@@ -1408,7 +1408,7 @@ function resetPassword(id){
   ]);
 }
 
-function deleteUser(id){
+async function deleteUser(id){
   if(!confirm('Delete this user?'))return;
   store.users=store.users.filter(u=>u.id!==id);
   await deleteUserFromFirestore(id);
@@ -1549,18 +1549,18 @@ function editCheckpoint(id){
   ]);
 }
 
-function toggleCheckpoint(id){
+async function toggleCheckpoint(id){
   const c=store.checklist.find(x=>x.id===id);
   if(c){c.active=!c.active;renderChecklistAdmin();showToast('Checkpoint '+(c.active?'enabled':'disabled'),'success');}
 }
 
-function deleteCheckpoint(id){
+async function deleteCheckpoint(id){
   if(!confirm('Delete this checkpoint permanently?'))return;
   store.checklist=store.checklist.filter(c=>c.id!==id);
   saveChecklist();renderChecklistAdmin();showToast('Checkpoint deleted','success');
 }
 
-function saveChecklist(){
+async function saveChecklist(){
   localStorage.setItem('mmChecklist', JSON.stringify(store.checklist));
 }
 
@@ -1637,7 +1637,7 @@ function removeEmail(e){
   renderEmailTags();
 }
 
-function saveSettings(){
+async function saveSettings(){
   store.settings.minPourTemp=parseFloat(document.getElementById('st-minPour').value)||1540;
   store.settings.minLadleTemp=parseFloat(document.getElementById('st-minLadle').value)||750;
   store.settings.minMouldPreheat=parseFloat(document.getElementById('st-mouldPreheat').value)||150;
@@ -1684,7 +1684,7 @@ function showToast(msg,type=''){
 //  INIT — runs on page load
 // ============================================================
 // INIT — restore session or check first-run
-document.addEventListener('firebaseReady', async () => {
+async function runInit() {
   loadSettings2();
   loadChecklist();
   // Try to restore session from sessionStorage
@@ -1712,11 +1712,18 @@ document.addEventListener('firebaseReady', async () => {
       document.getElementById('setupScreen').style.display = 'flex';
     }
   } catch(e) {
-    // Firestore unreachable — show login with offline notice
-    document.getElementById('loginErr').textContent = 'Cannot connect to database. Check internet.';
+    console.error('Firestore check failed:', e);
+    document.getElementById('loginErr').textContent = 'Cannot connect to database: ' + (e.message || e.code || 'unknown error');
     document.getElementById('loginErr').style.display = 'block';
   }
-});
+}
+
+// Handle both: event fires after listener attached, OR already fired
+if (window._firebaseReady) {
+  runInit();
+} else {
+  document.addEventListener('firebaseReady', runInit);
+}
 </script>
 </body>
 </html>
