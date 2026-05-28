@@ -281,6 +281,9 @@ pre.report{background:var(--bg3);border:1px solid var(--border);border-radius:va
     <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);font-size:11px;color:var(--text3);text-align:center">
       Contact your administrator if you have forgotten your password.
     </div>
+    <div style="margin-top:.75rem;text-align:center">
+      <a href="#" onclick="showSetup()" style="font-size:12px;color:var(--green);text-decoration:none">First time? Create admin account →</a>
+    </div>
   </div>
 </div>
 
@@ -1127,7 +1130,7 @@ async function editHeat(id){
     </div>
     <div class="field"><label>Remarks</label><textarea id="e-remarks">${h.remarks||''}</textarea></div>
   `,[
-    {label:'Save changes',cls:'btn-primary',fn:()=>{
+    {label:'Save changes',cls:'btn-primary',fn:async()=>{
       h.heatNo=document.getElementById('e-heatNo').value;
       h.date=document.getElementById('e-date').value;
       h.grade=document.getElementById('e-grade').value;
@@ -1673,6 +1676,11 @@ document.getElementById('modalOverlay').addEventListener('click',function(e){
 // ============================================================
 //  TOAST
 // ============================================================
+function showSetup(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('setupScreen').style.display='flex';
+}
+
 function showToast(msg,type=''){
   const t=document.getElementById('toast');
   t.textContent=msg;t.className='show '+(type||'');
@@ -1727,3 +1735,4 @@ if (window._firebaseReady) {
 </script>
 </body>
 </html>
+{}
