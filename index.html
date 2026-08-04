@@ -254,6 +254,9 @@ pre.report{background:var(--bg3);border:1px solid var(--border);border-radius:va
 ::-webkit-scrollbar-track{background:var(--bg3)}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 </head>
 <body>
 
@@ -934,93 +937,129 @@ function pageDashboard(){
     </div>
     <div class="card">
       <div class="card-title" style="margin-bottom:.75rem">AH trend — last 10 heats</div>
-      <canvas id="ahChart" height="180"></canvas>
+      <div style="position:relative;height:220px"><canvas id="ahChart"></canvas></div>
+      <div id="ahSummary" style="margin-top:.6rem;font-size:12px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap"></div>
     </div>
   </div>
   <div class="card">
     <div class="card-title" style="margin-bottom:.75rem">Checklist compliance — last 20 heats</div>
-    <canvas id="compChart" height="120"></canvas>
+    <div style="position:relative;height:240px"><canvas id="compChart"></canvas></div>
+    <div id="compSummary" style="margin-top:.6rem;font-size:12px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap"></div>
   </div>
   </div>`;
 }
 
+let _ahChart=null,_compChart=null;
+
 function renderDashboardCharts(){
-  // AH trend
-  const canvas=document.getElementById('ahChart');
-  if(!canvas)return;
-  const ctx=canvas.getContext('2d');
-  const recent=store.heats.slice(0,10).reverse();
-  const labels=recent.map(h=>h.heatNo);
-  const data=recent.map(h=>h.ah||0);
-  drawLineChart(ctx,canvas,labels,data,'AH g/m³',store.settings.ahWarn,store.settings.ahDanger);
-  // Compliance
-  const cc=document.getElementById('compChart');
-  if(!cc)return;
-  const ctx2=cc.getContext('2d');
-  const last20=store.heats.slice(0,20).reverse();
-  const okPct=last20.map(h=>{
-    const ids=Object.keys(h.checks);
-    if(!ids.length)return 0;
-    const ok=ids.filter(id=>h.checks[id]==='ok').length;
-    return Math.round(ok/ids.length*100);
-  });
-  drawBarChart(ctx2,cc,last20.map(h=>h.heatNo),okPct,'% OK');
-}
+  if(typeof Chart==='undefined'){setTimeout(renderDashboardCharts,300);return;}
+  if(Chart.registry&&window.ChartDataLabels){try{Chart.register(window.ChartDataLabels);}catch(e){}}
 
-function drawLineChart(ctx,canvas,labels,data,label,warnLine,dangerLine){
-  canvas.width=canvas.offsetWidth||400;
-  const W=canvas.width,H=canvas.height,pad=40;
-  ctx.clearRect(0,0,W,H);
-  if(!data.length){ctx.fillStyle='#5a6f8a';ctx.font='13px DM Sans';ctx.fillText('No data yet',W/2-40,H/2);return;}
-  const max=Math.max(...data,dangerLine||0)*1.1||10;
-  const xStep=(W-pad*2)/(labels.length-1||1);
-  // grid
-  [0,.25,.5,.75,1].forEach(t=>{
-    const y=H-pad-(H-pad*2)*t;
-    ctx.strokeStyle='rgba(200,208,217,.6)';ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(W-pad,y);ctx.stroke();
-    ctx.fillStyle='#5a6a7e';ctx.font='10px DM Mono';ctx.fillText((max*t).toFixed(1),4,y+4);
-  });
-  // warn/danger lines
-  [[warnLine,'#f5a623'],[dangerLine,'#f25757']].forEach(([v,c])=>{
-    if(!v)return;
-    const y=H-pad-(H-pad*2)*(v/max);
-    ctx.strokeStyle=c;ctx.lineWidth=1;ctx.setLineDash([4,4]);
-    ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(W-pad,y);ctx.stroke();
-    ctx.setLineDash([]);
-  });
-  // line
-  ctx.strokeStyle='#0d8a5e';ctx.lineWidth=2;ctx.setLineDash([]);
-  ctx.beginPath();
-  data.forEach((d,i)=>{
-    const x=pad+i*xStep,y=H-pad-(H-pad*2)*(d/max);
-    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-  });
-  ctx.stroke();
-  // dots + labels
-  data.forEach((d,i)=>{
-    const x=pad+i*xStep,y=H-pad-(H-pad*2)*(d/max);
-    ctx.fillStyle=d>dangerLine?'#c0392b':d>warnLine?'#b06a00':'#0d8a5e';
-    ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#8fa0b4';ctx.font='10px DM Mono';
-    ctx.fillText(labels[i],x-10,H-6);
-  });
-}
+  const warn=store.settings.ahWarn, danger=store.settings.ahDanger;
 
-function drawBarChart(ctx,canvas,labels,data,label){
-  canvas.width=canvas.offsetWidth||400;
-  const W=canvas.width,H=canvas.height,pad=40;
-  ctx.clearRect(0,0,W,H);
-  if(!data.length){ctx.fillStyle='#5a6f8a';ctx.font='13px DM Sans';ctx.fillText('No data yet',W/2-40,H/2);return;}
-  const bw=Math.max(8,(W-pad*2)/data.length-4);
-  data.forEach((d,i)=>{
-    const x=pad+i*((W-pad*2)/data.length);
-    const bh=(H-pad*2)*(d/100);
-    const y=H-pad-bh;
-    ctx.fillStyle=d>80?'#0d8a5e':d>50?'#b06a00':'#c0392b';
-    ctx.beginPath();ctx.roundRect(x,y,bw,bh,2);ctx.fill();
-    ctx.fillStyle='#5a6f8a';ctx.font='10px DM Mono';ctx.fillText(labels[i].slice(-4),x,H-6);
-  });
+  // ---------- AH TREND ----------
+  const ahCanvas=document.getElementById('ahChart');
+  if(ahCanvas){
+    const recent=store.heats.slice(0,10).reverse();
+    const labels=recent.map(h=>h.heatNo);
+    const data=recent.map(h=>h.ah!=null?+h.ah:null);
+    const ptColor=v=>v==null?'#c8d0d9':v>danger?'#c0392b':v>warn?'#b06a00':'#0d8a5e';
+
+    if(_ahChart)_ahChart.destroy();
+    _ahChart=new Chart(ahCanvas,{
+      type:'line',
+      data:{labels,datasets:[
+        {label:'Actual AH (g/m³)',data,borderColor:'#0d8a5e',backgroundColor:'#0d8a5e',
+         pointBackgroundColor:data.map(ptColor),pointBorderColor:data.map(ptColor),
+         pointRadius:5,pointHoverRadius:7,borderWidth:2,tension:.25,spanGaps:true,
+         datalabels:{align:'top',anchor:'end',color:'#334',font:{size:10,weight:'600'},
+           formatter:v=>v==null?'':v.toFixed(1)}},
+        {label:`Target max (${warn})`,data:labels.map(()=>warn),borderColor:'#f5a623',
+         borderDash:[6,4],borderWidth:1.5,pointRadius:0,fill:false,datalabels:{display:false}},
+        {label:`Critical (${danger})`,data:labels.map(()=>danger),borderColor:'#f25757',
+         borderDash:[6,4],borderWidth:1.5,pointRadius:0,fill:false,datalabels:{display:false}}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        scales:{
+          y:{beginAtZero:true,suggestedMax:danger*1.2,title:{display:true,text:'g/m³'},
+             grid:{color:'rgba(200,208,217,.5)'}},
+          x:{ticks:{maxRotation:60,minRotation:45,autoSkip:false,font:{size:10}},grid:{display:false}}
+        },
+        plugins:{legend:{display:true,position:'top',labels:{boxWidth:12,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y}`}}}
+      }
+    });
+
+    const vals=data.filter(v=>v!=null);
+    const avg=vals.length?(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1):'—';
+    const latest=vals.length?vals[vals.length-1].toFixed(1):'—';
+    const overCrit=data.filter(v=>v!=null&&v>danger).length;
+    const el=document.getElementById('ahSummary');
+    if(el)el.innerHTML=[
+      `<span><b>Target:</b> ≤ ${warn} g/m³</span>`,
+      `<span><b>Average:</b> ${avg}</span>`,
+      `<span><b>Latest:</b> ${latest}</span>`,
+      `<span style="color:${overCrit?'var(--red)':'var(--text2)'}"><b>Over critical:</b> ${overCrit} of ${vals.length}</span>`
+    ].join('');
+  }
+
+  // ---------- CHECKLIST COMPLIANCE ----------
+  const compCanvas=document.getElementById('compChart');
+  if(compCanvas){
+    const COMP_TARGET=100;
+    const last20=store.heats.slice(0,20).reverse();
+    const labels=last20.map(h=>h.heatNo);
+    const okPct=last20.map(h=>{
+      const ids=h.checks?Object.keys(h.checks):[];
+      if(!ids.length)return null;                       // no checklist -> gap, not fake 0
+      const ok=ids.filter(id=>h.checks[id]==='ok').length;
+      return Math.round(ok/ids.length*100);
+    });
+    const withData=okPct.filter(v=>v!=null);
+    const barColor=v=>v==null?'#e2e6ea':v>=95?'#0d8a5e':v>=80?'#b06a00':'#c0392b';
+
+    if(_compChart)_compChart.destroy();
+    _compChart=new Chart(compCanvas,{
+      type:'bar',
+      data:{labels,datasets:[
+        {type:'line',label:`Target (${COMP_TARGET}%)`,data:labels.map(()=>COMP_TARGET),
+         borderColor:'#f25757',borderDash:[6,4],borderWidth:1.5,pointRadius:0,fill:false,
+         datalabels:{display:false}},
+        {type:'bar',label:'% checklist OK',data:okPct,backgroundColor:okPct.map(barColor),
+         borderRadius:3,maxBarThickness:34,
+         datalabels:{anchor:'end',align:'end',color:'#334',font:{size:9,weight:'600'},
+           formatter:v=>v==null?'':v+'%'}}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        scales:{
+          y:{beginAtZero:true,max:110,ticks:{stepSize:25,callback:v=>v<=100?v+'%':''},
+             title:{display:true,text:'% OK'},grid:{color:'rgba(200,208,217,.5)'}},
+          x:{ticks:{maxRotation:60,minRotation:45,autoSkip:false,font:{size:9}},grid:{display:false}}
+        },
+        plugins:{legend:{display:true,position:'top',labels:{boxWidth:12,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.dataset.type==='line'?`Target: ${c.parsed.y}%`:
+            (c.parsed.y==null?'No checklist recorded':`Compliance: ${c.parsed.y}%`)}}}
+      }
+    });
+
+    const el=document.getElementById('compSummary');
+    if(el){
+      if(!withData.length){
+        el.innerHTML=`<span style="color:var(--text3)">No checklist data recorded yet — bars fill in as checklists are completed per heat.</span>`;
+      }else{
+        const avg=Math.round(withData.reduce((a,b)=>a+b,0)/withData.length);
+        const meeting=withData.filter(v=>v>=COMP_TARGET).length;
+        const worst=Math.min(...withData);
+        el.innerHTML=[
+          `<span><b>Target:</b> ${COMP_TARGET}%</span>`,
+          `<span><b>Average:</b> ${avg}%</span>`,
+          `<span><b>At target:</b> ${meeting} of ${withData.length} heats</span>`,
+          `<span style="color:${worst<80?'var(--red)':'var(--text2)'}"><b>Lowest:</b> ${worst}%</span>`
+        ].join('');
+      }
+    }
+  }
 }
 
 // ============================================================
@@ -1088,6 +1127,7 @@ function pageHeatLog(){
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:1rem">
     <div class="field" style="max-width:300px;margin:0"><input id="logSearch" placeholder="Search heat no. or grade..." oninput="renderHeatLog()"/></div>
     <button class="btn btn-primary" onclick="downloadHeatLog()">⬇ Download CSV</button>
+    <button class="btn" onclick="downloadHeatExcel()">⬇ Excel Summary</button>
   </div>
   <div class="card tbl-wrap">
   <table>
@@ -1151,6 +1191,95 @@ function downloadHeatLog(){
   document.body.appendChild(a);a.click();
   document.body.removeChild(a);URL.revokeObjectURL(url);
   showToast(`Downloaded ${list.length} records`,'success');
+}
+
+function downloadHeatExcel(){
+  if(typeof XLSX==='undefined'){showToast('Excel library still loading — try again in a moment','error');return;}
+  const q=(document.getElementById('logSearch')?.value||'').toLowerCase();
+  const list=store.heats.filter(h=>!q||h.heatNo.toLowerCase().includes(q)||(h.grade||'').toLowerCase().includes(q));
+  if(!list.length){showToast('Nothing to export','error');return;}
+
+  const statusOf=h=>!h.alerts||h.alerts.length===0?'Clear':h.alerts.some(a=>a.type==='danger')?'Alert':'Warning';
+  const num=v=>(v===null||v===undefined||v==='')?'':(isNaN(+v)?v:+v);
+
+  // ---- roll-up stats ----
+  const total=list.length;
+  const clear=list.filter(h=>statusOf(h)==='Clear').length;
+  const warn=list.filter(h=>statusOf(h)==='Warning').length;
+  const alert=list.filter(h=>statusOf(h)==='Alert').length;
+  const dates=list.map(h=>h.date).filter(Boolean).sort();
+  const ahVals=list.map(h=>h.ah).filter(v=>v!==null&&v!==undefined&&!isNaN(v));
+  const avgAH=ahVals.length?(ahVals.reduce((a,b)=>a+b,0)/ahVals.length).toFixed(2):'—';
+  const maxAH=ahVals.length?Math.max(...ahVals):'—';
+  // grade-wise + shift-wise breakdown
+  const by=(key)=>{const m={};list.forEach(h=>{const k=h[key]||'—';m[k]=(m[k]||0)+1;});return m;};
+  const grades=by('grade'), shifts=by('shift');
+
+  // ---- Sheet 1: Summary ----
+  const stamp=new Date().toISOString().slice(0,10);
+  const S=[
+    ['PTC Industries Limited — AMTC'],
+    ['Foundry Melting — Heat-wise Summary Report'],
+    ['Generated',new Date().toLocaleString()],
+    ['Generated by',currentUser?currentUser.name:'—'],
+    ['Filter applied',q?`"${q}"`:'None (all records)'],
+    [],
+    ['OVERVIEW'],
+    ['Total heats',total],
+    ['Date range',dates.length?`${dates[0]} to ${dates[dates.length-1]}`:'—'],
+    ['Clear',clear],
+    ['Warning',warn],
+    ['Alert (critical)',alert],
+    ['Average AH (g/m³)',avgAH],
+    ['Max AH (g/m³)',maxAH],
+    [],
+    ['GRADE-WISE COUNT'],
+    ...Object.entries(grades).map(([k,v])=>[k,v]),
+    [],
+    ['SHIFT-WISE COUNT'],
+    ...Object.entries(shifts).map(([k,v])=>[k,v]),
+  ];
+  const ws1=XLSX.utils.aoa_to_sheet(S);
+  ws1['!cols']=[{wch:22},{wch:30}];
+  ws1['!merges']=[
+    {s:{r:0,c:0},e:{r:0,c:1}},
+    {s:{r:1,c:0},e:{r:1,c:1}},
+  ];
+
+  // ---- Sheet 2: Heat Records (one row per heat) ----
+  const cols=[
+    ['Heat No','heatNo'],['Date','date'],['Shift','shift'],['Grade','grade'],['Operator','operator'],
+    ['RH (%)','rh'],['Dry Bulb °C','dbtemp'],['AH (g/m³)','ah'],['Pour °C','pourTemp'],
+    ['Ladle °C','ladleTemp'],['Mould Preheat °C','mouldPreheatTemp'],['Mould Range','mouldRange'],
+    ['Mould Count','mouldCount'],['Argon Pressure','argonPressure'],['Purging Dur','purgingDur'],
+    ['Video Shared','videoShared'],['Remarks','remarks'],['Timestamp','ts']
+  ];
+  const header=[...cols.map(c=>c[0]),'Status','Alert Count','Alerts'];
+  const rows=list.map(h=>[
+    ...cols.map(c=>{
+      const key=c[1];
+      const numeric=['rh','dbtemp','ah','pourTemp','ladleTemp','mouldPreheatTemp'].includes(key);
+      return numeric?num(h[key]):(h[key]===null||h[key]===undefined?'':h[key]);
+    }),
+    statusOf(h),
+    (h.alerts||[]).length,
+    (h.alerts||[]).map(a=>a.msg).join(' | ')
+  ]);
+  const ws2=XLSX.utils.aoa_to_sheet([header,...rows]);
+  ws2['!cols']=header.map((hd,i)=>{
+    if(hd==='Alerts')return{wch:60};
+    if(hd==='Remarks')return{wch:30};
+    if(hd==='Operator')return{wch:16};
+    return{wch:Math.max(10,hd.length+2)};
+  });
+  ws2['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:rows.length,c:header.length-1}})};
+  ws2['!freeze']={xSplit:0,ySplit:1};
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws1,'Summary');
+  XLSX.utils.book_append_sheet(wb,ws2,'Heat Records');
+  XLSX.writeFile(wb,`heat-summary_${stamp}.xlsx`);
+  showToast(`Exported ${total} heats to Excel`,'success');
 }
 
 async function deleteHeat(id){
