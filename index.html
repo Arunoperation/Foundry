@@ -946,10 +946,27 @@ function pageDashboard(){
     <div style="position:relative;height:240px"><canvas id="compChart"></canvas></div>
     <div id="compSummary" style="margin-top:.6rem;font-size:12px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap"></div>
   </div>
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:.75rem">Ladle preheat trend — last 12 heats</div>
+      <div style="position:relative;height:220px"><canvas id="ladleChart"></canvas></div>
+      <div id="ladleSummary" style="margin-top:.6rem;font-size:12px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap"></div>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:.75rem">Mould preheat trend — last 12 heats</div>
+      <div style="position:relative;height:220px"><canvas id="mouldChart"></canvas></div>
+      <div id="mouldSummary" style="margin-top:.6rem;font-size:12px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title" style="margin-bottom:.75rem">Checkpoint compliance breakdown — where failures happen (last 30 heats)</div>
+    <div style="position:relative;height:420px"><canvas id="checkpointChart"></canvas></div>
+    <div id="checkpointSummary" style="margin-top:.6rem;font-size:12px;color:var(--text2)"></div>
+  </div>
   </div>`;
 }
 
-let _ahChart=null,_compChart=null;
+let _ahChart=null,_compChart=null,_ladleChart=null,_mouldChart=null,_checkpointChart=null;
 
 function renderDashboardCharts(){
   if(typeof Chart==='undefined'){setTimeout(renderDashboardCharts,300);return;}
@@ -1059,6 +1076,97 @@ function renderDashboardCharts(){
         ].join('');
       }
     }
+  }
+
+  // ---------- TEMPERATURE TRENDS (ladle + mould preheat) ----------
+  function tempTrend(canvasId,summaryId,field,label,minSpec,unit,destroyRef){
+    const cv=document.getElementById(canvasId);
+    if(!cv)return null;
+    const recent=store.heats.slice(0,12).reverse();
+    const labels=recent.map(h=>h.heatNo);
+    const data=recent.map(h=>h[field]!=null&&h[field]!==''?+h[field]:null);
+    const vals=data.filter(v=>v!=null);
+    const ptColor=v=>v==null?'#c8d0d9':v<minSpec?'#c0392b':'#0d8a5e';
+    if(destroyRef&&destroyRef.chart)destroyRef.chart.destroy();
+    const chart=new Chart(cv,{
+      type:'line',
+      data:{labels,datasets:[
+        {label:`Actual (${unit})`,data,borderColor:'#1f6feb',backgroundColor:'#1f6feb',
+         pointBackgroundColor:data.map(ptColor),pointBorderColor:data.map(ptColor),
+         pointRadius:5,pointHoverRadius:7,borderWidth:2,tension:.25,spanGaps:true,
+         datalabels:{align:'top',anchor:'end',color:'#334',font:{size:10,weight:'600'},
+           formatter:v=>v==null?'':Math.round(v)}},
+        {label:`Min spec (${minSpec})`,data:labels.map(()=>minSpec),borderColor:'#f25757',
+         borderDash:[6,4],borderWidth:1.5,pointRadius:0,fill:false,datalabels:{display:false}}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+        scales:{
+          y:{title:{display:true,text:unit},grid:{color:'rgba(200,208,217,.5)'},
+             suggestedMin:Math.max(0,minSpec-(minSpec*0.15)),suggestedMax:minSpec*1.15},
+          x:{ticks:{maxRotation:60,minRotation:45,autoSkip:false,font:{size:10}},grid:{display:false}}
+        },
+        plugins:{legend:{display:true,position:'top',labels:{boxWidth:12,font:{size:11}}},
+          tooltip:{callbacks:{label:c=>c.parsed.y==null?'Not recorded':`${c.dataset.label.split(' ')[0]}: ${c.parsed.y}${unit}`}}}
+      }
+    });
+    if(destroyRef)destroyRef.chart=chart;
+    const below=data.filter(v=>v!=null&&v<minSpec).length;
+    const avg=vals.length?Math.round(vals.reduce((a,b)=>a+b,0)/vals.length):'—';
+    const s=document.getElementById(summaryId);
+    if(s)s.innerHTML=[
+      `<span><b>Min spec:</b> ${minSpec}${unit}</span>`,
+      `<span><b>Average:</b> ${avg}${vals.length?unit:''}</span>`,
+      `<span style="color:${below?'var(--red)':'var(--text2)'}"><b>Below spec:</b> ${below} of ${vals.length}</span>`
+    ].join('');
+    return chart;
+  }
+  _ladleChart=tempTrend('ladleChart','ladleSummary','ladleTemp','Ladle',store.settings.minLadleTemp,'°C',{chart:_ladleChart});
+  _mouldChart=tempTrend('mouldChart','mouldSummary','mouldPreheatTemp','Mould',store.settings.minMouldPreheat,'°C',{chart:_mouldChart});
+
+  // ---------- CHECKPOINT COMPLIANCE BREAKDOWN (worst-first) ----------
+  const cpCanvas=document.getElementById('checkpointChart');
+  if(cpCanvas){
+    const scope=store.heats.slice(0,30).filter(h=>h.checks&&Object.keys(h.checks).length);
+    const items=store.checklist.filter(c=>c.active);
+    const rows=items.map(c=>{
+      let ok=0,tot=0;
+      scope.forEach(h=>{const v=h.checks[c.id];if(v==='ok'){ok++;tot++;}else if(v==='nok'){tot++;}});
+      const pct=tot?Math.round(ok/tot*100):null;
+      const shortId=c.id.toUpperCase();
+      const plain=c.text.replace(/<[^>]+>/g,'');
+      return {id:shortId,label:`${shortId}  ${plain.length>46?plain.slice(0,46)+'…':plain}`,pct,ok,tot};
+    }).filter(r=>r.tot>0);
+    rows.sort((a,b)=>a.pct-b.pct);   // worst first
+    const barColor=v=>v>=95?'#0d8a5e':v>=80?'#b06a00':'#c0392b';
+
+    if(_checkpointChart)_checkpointChart.destroy();
+    if(!rows.length){
+      _checkpointChart=null;
+      const cvparent=cpCanvas.parentElement;
+      if(cvparent)cvparent.innerHTML=`<div style="color:var(--text3);font-size:13px;padding:2rem;text-align:center">No checklist data recorded yet — this breakdown fills in as heats are logged with their checklists.</div>`;
+    }else{
+      _checkpointChart=new Chart(cpCanvas,{
+        type:'bar',
+        data:{labels:rows.map(r=>r.label),datasets:[
+          {label:'% OK across heats',data:rows.map(r=>r.pct),backgroundColor:rows.map(r=>barColor(r.pct)),
+           borderRadius:3,datalabels:{anchor:'end',align:'end',color:'#334',font:{size:10,weight:'600'},
+             formatter:(v,ctx)=>`${v}%  (${rows[ctx.dataIndex].ok}/${rows[ctx.dataIndex].tot})`}}
+        ]},
+        options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+          scales:{
+            x:{beginAtZero:true,max:105,ticks:{stepSize:25,callback:v=>v<=100?v+'%':''},
+               grid:{color:'rgba(200,208,217,.5)'}},
+            y:{ticks:{font:{size:10},autoSkip:false},grid:{display:false}}
+          },
+          plugins:{legend:{display:false},
+            tooltip:{callbacks:{label:c=>`${rows[c.dataIndex].pct}% OK — ${rows[c.dataIndex].ok} of ${rows[c.dataIndex].tot} heats`}}}
+        }
+      });
+    }
+    const worst=rows.length?rows[0]:null;
+    const s=document.getElementById('checkpointSummary');
+    if(s&&worst)s.innerHTML=`<span>Based on <b>${scope.length}</b> heats with checklist data. Weakest checkpoint: <b>${worst.id}</b> at <b style="color:${worst.pct<80?'var(--red)':'inherit'}">${worst.pct}% OK</b>. Sorted worst-first so recurring gaps surface at the top.</span>`;
+    else if(s)s.innerHTML='';
   }
 }
 
