@@ -946,14 +946,26 @@ function pageDashboard(){
     <div style="position:relative;height:240px"><canvas id="compChart"></canvas></div>
     <div id="compSummary" style="margin-top:.6rem;font-size:12px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap"></div>
   </div>
+  <div class="card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px">
+    <span style="font-weight:600;font-size:13px">Preheat trends</span>
+    <label style="font-size:12px;color:var(--text2)">View by
+      <select id="tempMode" onchange="onTempModeChange()" style="margin-left:6px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);font-size:12px">
+        <option value="recent">Last 12 heats</option>
+        <option value="week">Week</option>
+        <option value="month">Month</option>
+      </select>
+    </label>
+    <select id="tempPeriod" onchange="onTempPeriodChange()" style="display:none;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);font-size:12px"></select>
+    <span id="tempPeriodCount" style="font-size:12px;color:var(--text3)"></span>
+  </div>
   <div class="grid2">
     <div class="card">
-      <div class="card-title" style="margin-bottom:.75rem">Ladle preheat trend — last 12 heats</div>
+      <div class="card-title" style="margin-bottom:.75rem">Ladle preheat trend</div>
       <div style="position:relative;height:220px"><canvas id="ladleChart"></canvas></div>
       <div id="ladleSummary" style="margin-top:.6rem;font-size:12px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap"></div>
     </div>
     <div class="card">
-      <div class="card-title" style="margin-bottom:.75rem">Mould preheat trend — last 12 heats</div>
+      <div class="card-title" style="margin-bottom:.75rem">Mould preheat trend</div>
       <div style="position:relative;height:220px"><canvas id="mouldChart"></canvas></div>
       <div id="mouldSummary" style="margin-top:.6rem;font-size:12px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap"></div>
     </div>
@@ -1079,49 +1091,7 @@ function renderDashboardCharts(){
   }
 
   // ---------- TEMPERATURE TRENDS (ladle + mould preheat) ----------
-  function tempTrend(canvasId,summaryId,field,label,minSpec,unit,destroyRef){
-    const cv=document.getElementById(canvasId);
-    if(!cv)return null;
-    const recent=store.heats.slice(0,12).reverse();
-    const labels=recent.map(h=>h.heatNo);
-    const data=recent.map(h=>h[field]!=null&&h[field]!==''?+h[field]:null);
-    const vals=data.filter(v=>v!=null);
-    const ptColor=v=>v==null?'#c8d0d9':v<minSpec?'#c0392b':'#0d8a5e';
-    if(destroyRef&&destroyRef.chart)destroyRef.chart.destroy();
-    const chart=new Chart(cv,{
-      type:'line',
-      data:{labels,datasets:[
-        {label:`Actual (${unit})`,data,borderColor:'#1f6feb',backgroundColor:'#1f6feb',
-         pointBackgroundColor:data.map(ptColor),pointBorderColor:data.map(ptColor),
-         pointRadius:5,pointHoverRadius:7,borderWidth:2,tension:.25,spanGaps:true,
-         datalabels:{align:'top',anchor:'end',color:'#334',font:{size:10,weight:'600'},
-           formatter:v=>v==null?'':Math.round(v)}},
-        {label:`Min spec (${minSpec})`,data:labels.map(()=>minSpec),borderColor:'#f25757',
-         borderDash:[6,4],borderWidth:1.5,pointRadius:0,fill:false,datalabels:{display:false}}
-      ]},
-      options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
-        scales:{
-          y:{title:{display:true,text:unit},grid:{color:'rgba(200,208,217,.5)'},
-             suggestedMin:Math.max(0,minSpec-(minSpec*0.15)),suggestedMax:minSpec*1.15},
-          x:{ticks:{maxRotation:60,minRotation:45,autoSkip:false,font:{size:10}},grid:{display:false}}
-        },
-        plugins:{legend:{display:true,position:'top',labels:{boxWidth:12,font:{size:11}}},
-          tooltip:{callbacks:{label:c=>c.parsed.y==null?'Not recorded':`${c.dataset.label.split(' ')[0]}: ${c.parsed.y}${unit}`}}}
-      }
-    });
-    if(destroyRef)destroyRef.chart=chart;
-    const below=data.filter(v=>v!=null&&v<minSpec).length;
-    const avg=vals.length?Math.round(vals.reduce((a,b)=>a+b,0)/vals.length):'—';
-    const s=document.getElementById(summaryId);
-    if(s)s.innerHTML=[
-      `<span><b>Min spec:</b> ${minSpec}${unit}</span>`,
-      `<span><b>Average:</b> ${avg}${vals.length?unit:''}</span>`,
-      `<span style="color:${below?'var(--red)':'var(--text2)'}"><b>Below spec:</b> ${below} of ${vals.length}</span>`
-    ].join('');
-    return chart;
-  }
-  _ladleChart=tempTrend('ladleChart','ladleSummary','ladleTemp','Ladle',store.settings.minLadleTemp,'°C',{chart:_ladleChart});
-  _mouldChart=tempTrend('mouldChart','mouldSummary','mouldPreheatTemp','Mould',store.settings.minMouldPreheat,'°C',{chart:_mouldChart});
+  initTempControls();
 
   // ---------- CHECKPOINT COMPLIANCE BREAKDOWN (worst-first) ----------
   const cpCanvas=document.getElementById('checkpointChart');
@@ -1168,6 +1138,123 @@ function renderDashboardCharts(){
     if(s&&worst)s.innerHTML=`<span>Based on <b>${scope.length}</b> heats with checklist data. Weakest checkpoint: <b>${worst.id}</b> at <b style="color:${worst.pct<80?'var(--red)':'inherit'}">${worst.pct}% OK</b>. Sorted worst-first so recurring gaps surface at the top.</span>`;
     else if(s)s.innerHTML='';
   }
+}
+
+// ---------- Temperature-trend period selector ----------
+let _tempMode='recent', _tempKey='';
+
+function _heatDate(h){ return h.date || (h.ts? new Date(h.ts).toISOString().slice(0,10) : ''); }
+function _weekStart(dateStr){
+  const dt=new Date(dateStr+'T00:00:00');
+  const day=(dt.getDay()+6)%7;              // Mon=0 … Sun=6
+  dt.setDate(dt.getDate()-day);
+  return dt.toISOString().slice(0,10);       // Monday YYYY-MM-DD
+}
+function _periodKey(h,mode){
+  const d=_heatDate(h); if(!d)return null;
+  return mode==='month' ? d.slice(0,7) : _weekStart(d);
+}
+function _periodLabel(key,mode){
+  if(mode==='month'){ const [y,m]=key.split('-'); return new Date(y,m-1,1).toLocaleDateString('en-US',{month:'long',year:'numeric'}); }
+  const mon=new Date(key+'T00:00:00'), sun=new Date(mon); sun.setDate(mon.getDate()+6);
+  const f=d=>d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+  return `${f(mon)} – ${f(sun)} ${sun.getFullYear()}`;
+}
+function tempPeriodOptions(mode){
+  const m={};
+  store.heats.forEach(h=>{ const k=_periodKey(h,mode); if(k)m[k]=(m[k]||0)+1; });
+  return Object.keys(m).sort().reverse().map(k=>({key:k,label:_periodLabel(k,mode),count:m[k]}));
+}
+
+function tempTrend(canvasId,summaryId,field,minSpec,unit,destroyRef,heatList,periodNote){
+  const cv=document.getElementById(canvasId);
+  if(!cv)return null;
+  const labels=heatList.map(h=>h.heatNo);
+  const data=heatList.map(h=>h[field]!=null&&h[field]!==''?+h[field]:null);
+  const vals=data.filter(v=>v!=null);
+  const ptColor=v=>v==null?'#c8d0d9':v<minSpec?'#c0392b':'#0d8a5e';
+  if(destroyRef&&destroyRef.chart)destroyRef.chart.destroy();
+  const chart=new Chart(cv,{
+    type:'line',
+    data:{labels,datasets:[
+      {label:`Actual (${unit})`,data,borderColor:'#1f6feb',backgroundColor:'#1f6feb',
+       pointBackgroundColor:data.map(ptColor),pointBorderColor:data.map(ptColor),
+       pointRadius:labels.length>25?3:5,pointHoverRadius:7,borderWidth:2,tension:.25,spanGaps:true,
+       datalabels:{display:labels.length<=20,align:'top',anchor:'end',color:'#334',font:{size:10,weight:'600'},
+         formatter:v=>v==null?'':Math.round(v)}},
+      {label:`Min spec (${minSpec})`,data:labels.map(()=>minSpec),borderColor:'#f25757',
+       borderDash:[6,4],borderWidth:1.5,pointRadius:0,fill:false,datalabels:{display:false}}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      scales:{
+        y:{title:{display:true,text:unit},grid:{color:'rgba(200,208,217,.5)'},
+           suggestedMin:Math.max(0,minSpec-(minSpec*0.15)),suggestedMax:minSpec*1.15},
+        x:{ticks:{maxRotation:60,minRotation:45,autoSkip:labels.length>16,font:{size:10}},grid:{display:false}}
+      },
+      plugins:{legend:{display:true,position:'top',labels:{boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{label:c=>c.parsed.y==null?'Not recorded':`${c.dataset.label.split(' ')[0]}: ${c.parsed.y}${unit}`}}}
+    }
+  });
+  if(destroyRef)destroyRef.chart=chart;
+  const below=data.filter(v=>v!=null&&v<minSpec).length;
+  const avg=vals.length?Math.round(vals.reduce((a,b)=>a+b,0)/vals.length):'—';
+  const s=document.getElementById(summaryId);
+  if(s)s.innerHTML=[
+    `<span><b>Heats:</b> ${heatList.length}</span>`,
+    `<span><b>Min spec:</b> ${minSpec}${unit}</span>`,
+    `<span><b>Average:</b> ${avg}${vals.length?unit:''}</span>`,
+    `<span style="color:${below?'var(--red)':'var(--text2)'}"><b>Below spec:</b> ${below} of ${vals.length}</span>`
+  ].join('');
+  return chart;
+}
+
+function renderTempTrends(){
+  if(typeof Chart==='undefined')return;
+  let list;
+  if(_tempMode==='recent'){
+    list=store.heats.slice(0,12).reverse();
+  }else{
+    list=store.heats.filter(h=>_periodKey(h,_tempMode)===_tempKey)
+      .sort((a,b)=>(_heatDate(a)).localeCompare(_heatDate(b))||((a.ts||0)-(b.ts||0)));
+  }
+  const cnt=document.getElementById('tempPeriodCount');
+  if(cnt)cnt.textContent = _tempMode==='recent' ? '' : `${list.length} heat${list.length===1?'':'s'} in this period`;
+  _ladleChart=tempTrend('ladleChart','ladleSummary','ladleTemp',store.settings.minLadleTemp,'°C',{chart:_ladleChart},list);
+  _mouldChart=tempTrend('mouldChart','mouldSummary','mouldPreheatTemp',store.settings.minMouldPreheat,'°C',{chart:_mouldChart},list);
+}
+
+function initTempControls(){
+  const modeSel=document.getElementById('tempMode');
+  if(!modeSel){ renderTempTrends(); return; }
+  modeSel.value=_tempMode;
+  const perSel=document.getElementById('tempPeriod');
+  if(_tempMode==='recent'){
+    if(perSel)perSel.style.display='none';
+  }else if(perSel){
+    const opts=tempPeriodOptions(_tempMode);
+    perSel.innerHTML=opts.map(o=>`<option value="${o.key}">${o.label} · ${o.count} heat${o.count===1?'':'s'}</option>`).join('');
+    if(!opts.find(o=>o.key===_tempKey)) _tempKey=opts.length?opts[0].key:'';
+    perSel.value=_tempKey; perSel.style.display='';
+  }
+  renderTempTrends();
+}
+
+function onTempModeChange(){
+  _tempMode=document.getElementById('tempMode').value;
+  const perSel=document.getElementById('tempPeriod');
+  if(_tempMode==='recent'){
+    if(perSel)perSel.style.display='none';
+  }else if(perSel){
+    const opts=tempPeriodOptions(_tempMode);
+    perSel.innerHTML=opts.map(o=>`<option value="${o.key}">${o.label} · ${o.count} heat${o.count===1?'':'s'}</option>`).join('');
+    _tempKey=opts.length?opts[0].key:'';
+    perSel.value=_tempKey; perSel.style.display='';
+  }
+  renderTempTrends();
+}
+function onTempPeriodChange(){
+  _tempKey=document.getElementById('tempPeriod').value;
+  renderTempTrends();
 }
 
 // ============================================================
